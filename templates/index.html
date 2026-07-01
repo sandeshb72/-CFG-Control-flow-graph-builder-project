@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CS202 — C Compiler Optimizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
+<script src="https://unpkg.com/@viz-js/viz@3.2.4/lib/viz-standalone.js"></script>
+</head>
+<body>
+
+
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="brand">
+      <span class="brand-icon">⚙</span>
+      <div>
+        <div class="brand-name">C Compiler Optimizer</div>
+        <div class="brand-sub">CS202 · Static Analysis &amp; Optimization Pipeline</div>
+      </div>
+    </div>
+  </div>
+  <div class="topbar-stats" id="stats-bar">
+    <div class="stat-pill"        id="pill-blocks"><span class="pill-val">—</span><span class="pill-lbl">Blocks</span></div>
+    <div class="stat-pill"        id="pill-edges" ><span class="pill-val">—</span><span class="pill-lbl">Edges</span></div>
+    <div class="stat-pill gold"   id="pill-fold"  ><span class="pill-val">—</span><span class="pill-lbl">Folded</span></div>
+    <div class="stat-pill green"  id="pill-prop"  ><span class="pill-val">—</span><span class="pill-lbl">Propagated</span></div>
+    <div class="stat-pill red"    id="pill-dce"   ><span class="pill-val">—</span><span class="pill-lbl">DCE</span></div>
+    <div class="stat-pill purple" id="pill-unr"   ><span class="pill-val">—</span><span class="pill-lbl">Unreachable</span></div>
+    <div class="stat-pill teal"   id="pill-loops" ><span class="pill-val">—</span><span class="pill-lbl">Loops</span></div>
+    <div class="stat-pill"        id="pill-ms"    ><span class="pill-val">—</span><span class="pill-lbl">ms</span></div>
+  </div>
+  <div class="topbar-right">
+    <div id="status-dot" class="status-dot idle" title="Ready"></div>
+  </div>
+</header>
+
+
+<main class="workspace">
+
+  
+  <aside class="col col-editor">
+    <div class="panel-title"><span class="panel-icon">📝</span> C Source Input</div>
+
+    <textarea id="code-input" spellcheck="false"
+      placeholder="// Paste your C code here…
+int main() {
+    int x = 3 + 5;
+    return x;
+}"></textarea>
+
+    <div class="pipeline-builder">
+      <div class="legend-title" style="margin-bottom:0.5rem;font-size:0.8rem;color:#94a3b8">⚙ PIPELINE SEQUENCE</div>
+      <ul id="pipeline-list" class="pipeline-list">
+        
+      </ul>
+      <div class="add-pass-row">
+        <select id="add-pass-select">
+          <option value="fold">Constant Folding</option>
+          <option value="prop">Value Propagation</option>
+          <option value="dce">Dead Code Elimination</option>
+          <option value="unreachable">Unreachable Removal</option>
+          <option value="licm">Loop Invariant CM</option>
+        </select>
+        <button class="add-pass-btn" onclick="addPass()">+ Add</button>
+      </div>
+      <div style="text-align:right; margin-top: 0.5rem;">
+        <button class="reset-pipeline-btn" onclick="resetPipeline()">↺ Reset Default</button>
+      </div>
+    </div>
+
+    <button id="run-btn" onclick="analyze()">
+      <span id="run-btn-icon">▶</span>
+      <span id="run-btn-text">Run Pipeline</span>
+    </button>
+
+    <div id="error-box" class="error-box hidden"></div>
+
+    
+    <div class="legend">
+      <div class="legend-title">📖 Graph &amp; Block Legend</div>
+      <div class="legend-section-title">Optimization Types</div>
+      <div class="legend-row"><span class="badge folded">FOLD</span> Constant Folded — compile-time math</div>
+      <div class="legend-row"><span class="badge propagated">PROP</span> Value Propagated — constant substituted</div>
+      <div class="legend-row"><span class="badge removed">DCE</span> Dead Code — never used, removed</div>
+      <div class="legend-row"><span class="badge moved">LICM</span> Loop Invariant — hoisted above loop</div>
+      <div class="legend-section-title" style="margin-top:.5rem">Block Types</div>
+      <div class="legend-row"><span class="legend-block" style="background:#0d3d2b;color:#2ecc71">ENTRY</span> Function entry point</div>
+      <div class="legend-row"><span class="legend-block" style="background:#3d0d0d;color:#e74c3c">EXIT</span> Function exit point</div>
+      <div class="legend-row"><span class="legend-block" style="background:#0d1f3d;color:#5dade2">FUNC</span> Function body start</div>
+      <div class="legend-row"><span class="legend-block" style="background:#1f0d3d;color:#a855f7">PRE</span> LICM preheader block</div>
+      <div class="legend-row"><span class="legend-block" style="background:#1a1a1a;color:#7f8c8d">DEAD</span> Unreachable block</div>
+      <div class="legend-section-title" style="margin-top:.5rem">Edge Colours</div>
+      <div class="legend-row"><span class="edge-swatch" style="background:#27ae60"></span> true branch</div>
+      <div class="legend-row"><span class="edge-swatch" style="background:#e74c3c"></span> false / break branch</div>
+      <div class="legend-row"><span class="edge-swatch" style="background:#9b59b6;border-style:dashed"></span> back-edge (loop)</div>
+      <div class="legend-row"><span class="edge-swatch" style="background:#14b8a6"></span> continue edge</div>
+      <div class="legend-row"><span class="edge-swatch" style="background:#e67e22"></span> return edge</div>
+      <div class="legend-row"><span class="edge-swatch" style="background:#4a5568"></span> fall-through</div>
+    </div>
+  </aside>
+
+  
+  <section class="col col-cfg">
+    <div class="cfg-header">
+      <span class="panel-icon">🔀</span>
+      <span class="cfg-title">Control Flow Graph</span>
+      <div class="cfg-toggle-group">
+        <button class="cfg-toggle-btn active" id="btn-before" onclick="switchCfg('before')">Before Opt</button>
+        <button class="cfg-toggle-btn"        id="btn-after"  onclick="switchCfg('after')">After Opt</button>
+      </div>
+      <div class="cfg-zoom-controls">
+        <button class="zoom-btn" onclick="zoomCfg(0.15)" title="Zoom In">➕</button>
+        <button class="zoom-btn" onclick="zoomCfg(-0.15)" title="Zoom Out">➖</button>
+        <button class="zoom-btn" onclick="resetZoomCfg()" title="Reset Zoom">🏠</button>
+      </div>
+      <div class="cfg-mode-label" id="cfg-mode-label">BEFORE OPTIMIZATION</div>
+    </div>
+    
+    
+    <div class="cfg-body" id="cfg-body">
+      <div class="cfg-placeholder" id="cfg-placeholder">
+        <div class="placeholder-glyph">⚙</div>
+        <p>Run the optimizer to render the CFG here</p>
+        <p class="placeholder-hint">Click any block in the 🧱 Blocks tab for a detailed transformation walkthrough below</p>
+      </div>
+      <div id="cfg-canvas" class="cfg-canvas hidden"></div>
+    </div>
+
+    
+    <div class="cfg-bottom-flow hidden" id="block-flow-panel">
+      <div class="bex-header-bar">
+        <div>
+          <span class="bex-title" id="bex-block-title">Block Explorer</span>
+          <span class="bex-subtitle">Transformation Pipeline</span>
+        </div>
+        <button class="bex-close" onclick="closeBlockExplorer()">✕</button>
+      </div>
+      
+      <div class="bex-pipeline-horizontal">
+        
+        <div class="bex-stage">
+          <div class="bex-stage-label stage-before">① Original C Code</div>
+          <ul id="bex-before-list" class="bex-code-list before-list"></ul>
+        </div>
+
+        <div class="bex-arrow">→</div>
+
+        
+        <div class="bex-stage">
+          <div class="bex-stage-label stage-cfg-before">② CFG Edges Before</div>
+          <div id="bex-edges-before" class="bex-edges"></div>
+        </div>
+
+        <div class="bex-arrow">→</div>
+
+        
+        <div class="bex-stage bex-stage-opts">
+          <div class="bex-stage-label stage-opts">③ Optimizations</div>
+          <div id="bex-steps" class="bex-steps-container"></div>
+        </div>
+
+        <div class="bex-arrow">→</div>
+
+        
+        <div class="bex-stage">
+          <div class="bex-stage-label stage-cfg-after">④ CFG Edges After</div>
+          <div id="bex-edges" class="bex-edges"></div>
+        </div>
+
+        <div class="bex-arrow">→</div>
+
+        
+        <div class="bex-stage">
+          <div class="bex-stage-label stage-after">⑤ Optimized C Code</div>
+          <ul id="bex-after-list" class="bex-code-list after-list"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  
+  <aside class="col col-analysis">
+    <div class="tab-bar">
+      <button class="tab active" onclick="switchTab('analysis',this)">📊 Analysis</button>
+      <button class="tab"        onclick="switchTab('log',this)">📋 Opt Log</button>
+      <button class="tab"        onclick="switchTab('blocks',this)">🧱 Blocks</button>
+      <button class="tab"        onclick="switchTab('loops',this)">🔁 Loops</button>
+    </div>
+
+    
+    <div class="tab-content active" id="tab-analysis">
+      <div class="analysis-card warn-card">
+        <div class="ac-header">
+          <span class="ac-icon">⚠</span>
+          <span class="ac-title">Uninitialized Variables</span>
+          <span class="ac-count" id="uninit-count">—</span>
+        </div>
+        <ul id="uninit-list" class="issue-list"><li class="placeholder-item">Run optimizer…</li></ul>
+      </div>
+      <div class="analysis-card dead-card">
+        <div class="ac-header">
+          <span class="ac-icon">💀</span>
+          <span class="ac-title">Dead Assignments</span>
+          <span class="ac-count" id="dead-count">—</span>
+        </div>
+        <ul id="dead-list" class="issue-list"><li class="placeholder-item">Run optimizer…</li></ul>
+      </div>
+    </div>
+
+    
+    <div class="tab-content hidden" id="tab-log">
+      <div class="log-summary" id="log-summary" style="display:none"></div>
+      <ul id="opt-log-list" class="opt-log"><li class="placeholder-item">Run optimizer…</li></ul>
+    </div>
+
+    
+    <div class="tab-content hidden" id="tab-blocks">
+      <div class="blocks-search">
+        <input type="text" id="block-search" placeholder="Search blocks by label or instruction…" oninput="filterBlocks()"/>
+      </div>
+      <p style="font-size:.7rem;color:var(--text-muted);margin-bottom:.5rem">💡 Click any block to see its full transformation journey</p>
+      <div id="blocks-container" class="blocks-list"><p class="placeholder-item">Run optimizer…</p></div>
+    </div>
+
+    
+    <div class="tab-content hidden" id="tab-loops">
+      <div id="loops-container" class="loops-list"><p class="placeholder-item">Run optimizer…</p></div>
+    </div>
+  </aside>
+</main>
+
+
+
+
+<div id="spinner" class="spinner hidden">
+  <div class="spinner-ring"></div>
+  <p>Analyzing pipeline…</p>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
